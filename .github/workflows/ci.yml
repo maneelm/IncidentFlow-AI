@@ -1,0 +1,90 @@
+name: IncidentFlow verification
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: verification-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  UV_VERSION: '0.11.28'
+  PYTHON_VERSION: '3.12'
+  NODE_VERSION: '22.23.4'
+  GROQ_API_KEY: ''
+jobs:
+  python:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with: {python-version: '${{ env.PYTHON_VERSION }}'}
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+        with: {version: '${{ env.UV_VERSION }}'}
+      - run: uv sync --locked
+      - run: uv run --locked ruff check backend scripts
+      - run: uv run --locked ruff format --check backend scripts
+      - run: uv run --locked python scripts/init_env.py
+      - run: uv run --locked python scripts/check_release.py
+      - run: docker compose --profile test up -d --wait postgres-test
+      - run: uv run --locked pytest -q
+      - if: always()
+        run: docker compose --profile test stop postgres-test
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with: {python-version: '${{ env.PYTHON_VERSION }}'}
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with: {version: '${{ env.UV_VERSION }}'}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with: {node-version: '${{ env.NODE_VERSION }}', cache: npm, cache-dependency-path: frontend/package-lock.json}
+      - run: uv sync --locked
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run typecheck && npm run lint && npm test && npm run build && npm run api:check
+        working-directory: frontend
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with: {python-version: '${{ env.PYTHON_VERSION }}'}
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with: {version: '${{ env.UV_VERSION }}'}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with: {node-version: '${{ env.NODE_VERSION }}'}
+      - run: uv sync --locked
+      - run: uv run --locked python scripts/init_env.py
+      - run: docker compose --profile test up -d --wait postgres-test
+      - run: npm ci && npx playwright install --with-deps chromium && npm run test:e2e
+        working-directory: frontend
+      - if: always()
+        run: docker compose --profile test stop postgres-test
+  containers:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+        with: {python-version: '${{ env.PYTHON_VERSION }}'}
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with: {version: '${{ env.UV_VERSION }}'}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with: {node-version: '${{ env.NODE_VERSION }}'}
+      - run: uv sync --locked
+      - run: uv run --locked python scripts/init_env.py
+      - run: docker compose config --quiet
+      - run: docker compose build api frontend
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: uv run --locked python scripts/verify_containers.py

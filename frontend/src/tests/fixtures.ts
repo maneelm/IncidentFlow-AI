@@ -1,0 +1,171 @@
+import type {
+  CatalogAction,
+  Evidence,
+  Incident,
+  Overview,
+  Proposal,
+  Report,
+  Service,
+  User,
+} from "../types/models";
+export const id = "11111111-1111-4111-8111-111111111111";
+export const otherId = "22222222-2222-4222-8222-222222222222";
+export const now = "2026-11-03T10:00:00Z";
+export const user: User = {
+  id,
+  email: "engineer@example.com",
+  display_name: "Test engineer",
+  role: "engineer",
+  created_at: now,
+  updated_at: now,
+};
+export const service: Service = {
+  id: otherId,
+  name: "payments-api",
+  description: "Registered service",
+  environment: "simulation",
+  created_at: now,
+  updated_at: now,
+};
+export const incident: Incident = {
+  id,
+  incident_number: "INC-000001",
+  title: "Database connections failing",
+  description: "Observed connection timeouts",
+  severity: "high",
+  status: "triggered",
+  service_id: otherId,
+  assignee_id: null,
+  created_at: now,
+  updated_at: now,
+  resolved_at: null,
+  closed_at: null,
+  version: 1,
+};
+export const proposal: Proposal = {
+  id,
+  incident_id: id,
+  investigation_id: null,
+  service_id: otherId,
+  state_id: otherId,
+  incident_version: 1,
+  state_version: 1,
+  action_id: "simulate_connection_pool_recovery",
+  action_fingerprint: "a".repeat(64),
+  parameters: { state_id: otherId, expected_state_version: 1 },
+  provenance: {},
+  explanation: "Human-authored synthetic pool recovery.",
+  origin: "human",
+  risk: "synthetic_mutation",
+  requested_by: id,
+  policy: { distinct_approver: true },
+  payload_hash: "b".repeat(64),
+  client_request_id: otherId,
+  status: "pending_approval",
+  version: 2,
+  approval_deadline: "2099-01-01T00:00:00Z",
+  error_code: null,
+  created_at: now,
+  updated_at: now,
+};
+export const catalog: CatalogAction[] = [
+  {
+    id: "inspect_service_health",
+    version: 1,
+    description: "Inspect synthetic health.",
+    risk: "read_only",
+    approval_required: true,
+    distinct_approver_required: false,
+    mutates_synthetic_state: false,
+    timeout_seconds: 5,
+    parameter_schema: { type: "object", additionalProperties: false },
+    result_schema: {},
+    verification_schema: {},
+  },
+  {
+    id: "simulate_connection_pool_recovery",
+    version: 1,
+    description: "Recover isolated synthetic pool pressure.",
+    risk: "synthetic_mutation",
+    approval_required: true,
+    distinct_approver_required: true,
+    mutates_synthetic_state: true,
+    timeout_seconds: 5,
+    parameter_schema: { type: "object", additionalProperties: false },
+    result_schema: {},
+    verification_schema: {},
+  },
+];
+export const overview: Overview = {
+  observed_at: now,
+  total_incidents: 0,
+  active_incidents: 0,
+  total_services: 1,
+  pending_approvals: 0,
+  severity: [],
+  statuses: [],
+  proposal_statuses: [],
+  recent_detections: [],
+  recent_investigations: [],
+  approval_queue: [],
+  recent_activity: [],
+};
+export const evidence: Evidence = {
+  reference: `log:${otherId}`,
+  source_type: "log",
+  label: "Source timeout record",
+  excerpt: '<script>alert("untrusted")</script> DB_CONNECTION_TIMEOUT',
+  role: "original_witness",
+  provenance: { level: "error" },
+  quarantined: false,
+};
+export const report: Report = {
+  summary: "Selected logs contain database timeouts.",
+  observed_evidence: [
+    {
+      statement: "One selected error log.",
+      evidence_ids: [evidence.reference],
+    },
+  ],
+  hypotheses: [
+    {
+      title: "Possible pool pressure",
+      explanation: "Pool pressure may explain timeouts.",
+      evidence_ids: [evidence.reference],
+      missing_or_contradicting_evidence: [
+        "No connection counters are available.",
+      ],
+      confidence: "low",
+      verification_step: "Inspect read-only pool diagnostics.",
+    },
+  ],
+  recommended_actions: [
+    {
+      description: "Inspect database connections",
+      rationale: "More evidence is needed.",
+      evidence_ids: [evidence.reference],
+      risk: "read_only",
+      requires_human_review: true,
+    },
+  ],
+  limitations: ["The cause is not proven."],
+  metadata: {
+    investigation_id: id,
+    incident_id: id,
+    started_at: now,
+    completed_at: now,
+    provider: "fake",
+    model: "fake-v1",
+    status: "completed",
+    evidence_count: 1,
+    log_count: 1,
+    synthetic_provider: true,
+    calls_reserved: 2,
+  },
+};
+export const pageOf = <T>(items: T[], total = items.length, offset = 0) => ({
+  items,
+  total,
+  offset,
+  limit: 20,
+});

@@ -1,0 +1,172 @@
+name: incidentflow
+x-logging: &logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+x-app-environment: &app-environment
+  # Never reuse the Windows/host DATABASE_URL inside containers. The launcher
+  # builds an escaped URL from these fields, or uses CONTAINER_DATABASE_URL.
+  CONTAINER_DATABASE_URL: ${CONTAINER_DATABASE_URL:-}
+  DB_HOST: postgres
+  DB_USER: ${DB_USER:?Generate .env first}
+  DB_PASSWORD: ${DB_PASSWORD:?Generate .env first}
+  DB_NAME: ${DB_NAME:?Generate .env first}
+  JWT_SECRET: ${JWT_SECRET:?Generate .env first}
+  JWT_ACCESS_TOKEN_MINUTES: ${JWT_ACCESS_TOKEN_MINUTES:-15}
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  CORS_ORIGINS: ${CONTAINER_CORS_ORIGINS:-[]}
+  LOG_FORMAT: json
+  INGESTION_MAX_REQUEST_BYTES: ${INGESTION_MAX_REQUEST_BYTES:-524288}
+  LOG_MAX_AGE_SECONDS: ${LOG_MAX_AGE_SECONDS:-86400}
+  LOG_MAX_FUTURE_SECONDS: ${LOG_MAX_FUTURE_SECONDS:-120}
+  WORKER_BATCH_SIZE: ${WORKER_BATCH_SIZE:-10}
+  WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-1}
+  WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-60}
+  WORKER_TIMEOUT_SECONDS: ${WORKER_TIMEOUT_SECONDS:-10}
+  WORKER_MAX_ATTEMPTS: ${WORKER_MAX_ATTEMPTS:-5}
+  WORKER_BACKOFF_SECONDS: ${WORKER_BACKOFF_SECONDS:-2}
+  INVESTIGATION_LLM_PROVIDER: ${INVESTIGATION_LLM_PROVIDER:-groq}
+  INVESTIGATION_LLM_MODEL: ${INVESTIGATION_LLM_MODEL:-}
+  INVESTIGATION_LLM_TIMEOUT_SECONDS: ${INVESTIGATION_LLM_TIMEOUT_SECONDS:-20}
+  INVESTIGATION_MAX_LLM_CALLS: ${INVESTIGATION_MAX_LLM_CALLS:-4}
+  INVESTIGATION_MAX_INPUT_TOKENS: ${INVESTIGATION_MAX_INPUT_TOKENS:-65536}
+  INVESTIGATION_MAX_OUTPUT_TOKENS: ${INVESTIGATION_MAX_OUTPUT_TOKENS:-8192}
+  INVESTIGATION_MAX_DURATION_SECONDS: ${INVESTIGATION_MAX_DURATION_SECONDS:-180}
+  INVESTIGATION_LEASE_SECONDS: ${INVESTIGATION_LEASE_SECONDS:-90}
+  INVESTIGATION_MAX_ATTEMPTS: ${INVESTIGATION_MAX_ATTEMPTS:-3}
+  INVESTIGATION_MAX_LOGS: ${INVESTIGATION_MAX_LOGS:-20}
+  INVESTIGATION_MAX_KNOWLEDGE: ${INVESTIGATION_MAX_KNOWLEDGE:-4}
+  RESOLUTION_APPROVAL_TTL_SECONDS: ${RESOLUTION_APPROVAL_TTL_SECONDS:-900}
+  RESOLUTION_LEASE_SECONDS: ${RESOLUTION_LEASE_SECONDS:-30}
+  RESOLUTION_MAX_ATTEMPTS: ${RESOLUTION_MAX_ATTEMPTS:-3}
+x-backend: &backend
+  image: incidentflow-backend:local
+  build: {context: ., dockerfile: deploy/backend.Dockerfile}
+  environment: *app-environment
+  restart: unless-stopped
+  read_only: true
+  tmpfs: ["/tmp:size=32m,mode=1777"]
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  mem_limit: 512m
+  cpus: 1.0
+  logging: *logging
+  networks: [database]
+  depends_on:
+    migrate: {condition: service_completed_successfully}
+  stop_grace_period: 30s
+x-worker: &worker
+  <<: *backend
+  environment:
+    <<: *app-environment
+    WORKER_HEARTBEAT_PATH: /tmp/worker-heartbeat
+  healthcheck:
+    test: [CMD, python, -m, app.ops.health, worker]
+    interval: 20s
+    timeout: 5s
+    start_period: 15s
+    retries: 3
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:?Generate .env first}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Generate .env first}
+      POSTGRES_DB: ${DB_NAME:?Generate .env first}
+    restart: unless-stopped
+    logging: *logging
+    networks: [database]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  postgres-test:
+    image: postgres:17-alpine
+    profiles: [test]
+    logging: *logging
+    networks: [test]
+    environment:
+      POSTGRES_USER: incidentflow_test
+      POSTGRES_PASSWORD: ${TEST_DB_PASSWORD:?Generate .env first}
+      POSTGRES_DB: incidentflow_test
+    ports:
+      - "127.0.0.1:55433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incidentflow_test -d incidentflow_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  migrate:
+    <<: *backend
+    command: [migrate]
+    restart: "no"
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    <<: *backend
+    command: [api]
+    environment:
+      <<: *app-environment
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    networks: [database, web]
+    healthcheck:
+      test: [CMD, python, -m, app.ops.health, api]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+  detection-worker:
+    <<: *worker
+    command: [detection-worker]
+  investigation-worker:
+    <<: *worker
+    command: [investigation-worker]
+    environment:
+      <<: *app-environment
+      WORKER_HEARTBEAT_PATH: /tmp/worker-heartbeat
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    networks: [database, egress]
+    stop_grace_period: ${INVESTIGATION_STOP_GRACE_PERIOD:-210s}
+  resolution-worker:
+    <<: *worker
+    command: [resolution-worker]
+  frontend:
+    image: incidentflow-frontend:local
+    build: {context: ., dockerfile: deploy/frontend.Dockerfile}
+    restart: unless-stopped
+    ports: ["127.0.0.1:${FRONTEND_PORT:-8080}:8080"]
+    networks: [web]
+    depends_on:
+      api: {condition: service_healthy}
+    read_only: true
+    tmpfs: ["/tmp:size=32m,mode=1777"]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    logging: *logging
+    stop_grace_period: 15s
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:8080/healthz]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+networks:
+  database: {internal: true}
+  # The published frontend needs a normal bridge on Docker Desktop. API still
+  # has no published port; only postgres/worker traffic uses the isolated net.
+  web: {}
+  egress: {}
+  test: {}
+volumes:
+  postgres_data:

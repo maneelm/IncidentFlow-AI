@@ -1,0 +1,5 @@
+# Opt-in host PostgreSQL access for the existing Python/Vite development workflow.
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:55432:5432"

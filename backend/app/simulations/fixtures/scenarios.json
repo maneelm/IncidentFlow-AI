@@ -1,0 +1,27 @@
+{
+  "database": {
+    "service": "payment", "name": "Payment Database Failures", "level": "error",
+    "error_code": "DB_CONNECTION_TIMEOUT", "threshold": 5, "count": 10,
+    "incident_severity": "high", "expected_incidents": 1
+  },
+  "api-errors": {
+    "service": "order", "name": "Order API Error Spike", "level": "error",
+    "error_code": "HTTP_500", "threshold": 5, "count": 12,
+    "incident_severity": "high", "expected_incidents": 1
+  },
+  "latency": {
+    "service": "catalog", "name": "Sustained Latency Degradation", "level": "warning",
+    "error_code": "LATENCY_BREACH", "threshold": 5, "count": 8,
+    "incident_severity": "medium", "expected_incidents": 1
+  },
+  "normal": {
+    "service": "normal", "name": "Normal Traffic Guard", "level": "error",
+    "error_code": "DB_CONNECTION_TIMEOUT", "threshold": 5, "count": 4,
+    "incident_severity": "high", "expected_incidents": 0
+  },
+  "duplicate": {
+    "service": "replay", "name": "Duplicate Delivery Guard", "level": "error",
+    "error_code": "DB_CONNECTION_TIMEOUT", "threshold": 5, "count": 10,
+    "incident_severity": "high", "expected_incidents": 1
+  }
+}
