@@ -1527,7 +1527,8 @@ summary {
     display: inline-flex;
   }
   .topbar {
-    height: 61px;
+    min-height: 61px;
+    height: auto;
     padding: 0 14px;
   }
   .breadcrumb > span {
@@ -1535,6 +1536,9 @@ summary {
   }
   .breadcrumb {
     gap: 6px;
+  }
+  .breadcrumb strong {
+    overflow-wrap: anywhere;
   }
   .topbar-right {
     gap: 9px;

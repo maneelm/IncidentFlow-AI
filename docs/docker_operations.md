@@ -132,7 +132,7 @@ try {
 uv run --locked python scripts/verify_containers.py
 ```
 
-Use the supported Node runtime described in the Phase 5 guide. The container verifier runs the six Chromium workflows (including the original five) through Nginx plus crash/restart/backup/secret checks. It creates a random `incidentflow-verify-*` project, separate runtime credentials and named volume; it never addresses the development volume. It refuses pre-existing resources in the new namespace, then cleans its own containers and networks. It removes only the exact temporary PostgreSQL volume after validating its project and volume-role labels, and deletes its generated private `.tools` credential file. It never uses unchecked Compose volume deletion. Cleanup failures are reported as failures; no broad prune or deletion of older verification projects is performed. No Groq call is made.
+Use the supported Node runtime described in the Phase 5 guide. The container verifier runs nine Chromium workflows (the original six plus three readiness-state header regressions) through Nginx plus crash/restart/backup/secret checks. It creates a random `incidentflow-verify-*` project, separate runtime credentials and named volume; it never addresses the development volume. It refuses pre-existing resources in the new namespace, then cleans its own containers and networks. It removes only the exact temporary PostgreSQL volume after validating its project and volume-role labels, and deletes its generated private `.tools` credential file. It never uses unchecked Compose volume deletion. Cleanup failures are reported as failures; no broad prune or deletion of older verification projects is performed. No Groq call is made.
 
 ## Troubleshooting
 

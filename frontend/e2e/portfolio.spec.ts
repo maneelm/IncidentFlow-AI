@@ -5,6 +5,7 @@ import {
   type Page,
 } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import type { Execution } from "../src/types/models";
 import { expectNoHorizontalOverflow } from "./layout";
@@ -119,7 +120,7 @@ test("portfolio workflow, accessible controls and safe real screenshots", async 
   const service = await post(
     "/services",
     {
-      name: "payment-api",
+      name: `payment-api-${randomUUID().slice(0, 8)}`,
       environment: "simulation",
       description:
         "SYNTHETIC portfolio scenario: payment requests with database connection pressure.",
@@ -473,5 +474,6 @@ test("portfolio workflow, accessible controls and safe real screenshots", async 
   await expect(
     page.getByRole("heading", { name: "Operations overview" }),
   ).toBeVisible();
+  await mobileWidths(page);
   await capture(page, "operations-overview.png");
 });

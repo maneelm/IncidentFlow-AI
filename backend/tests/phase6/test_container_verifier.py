@@ -450,3 +450,17 @@ def test_layout_diagnostic_rejects_unbounded_numbers_and_style_payloads():
     result = verifier.layout_diagnostic([{"text": "LAYOUT_DIAGNOSTIC " + json.dumps(payload)}])
     assert "scrollX" not in result
     assert result["offenders"] == [{"classes": ["sr-only"]}]
+
+
+def test_browser_requires_the_three_new_header_workflows(isolated, monkeypatch):
+    report = {"suites": [], "stats": {"expected": 6, "unexpected": 0, "flaky": 0, "skipped": 0}}
+    monkeypatch.setattr(verifier.shutil, "which", lambda _: "node")
+    monkeypatch.setattr(
+        verifier.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, stdout=json.dumps(report), stderr=""
+        ),
+    )
+    with pytest.raises(verifier.VerificationFailure, match="browser.all_workflows_ran"):
+        isolated.browser({})

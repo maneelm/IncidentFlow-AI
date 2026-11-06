@@ -615,7 +615,7 @@ class Verification:
         for key in ("unexpected", "flaky", "skipped"):
             expect_equal(f"browser.{key}", stats.get(key), 0)
         passed = stats.get("expected", 0)
-        expect_true("browser.all_workflows_ran", isinstance(passed, int) and passed >= 6)
+        expect_true("browser.all_workflows_ran", isinstance(passed, int) and passed >= 9)
         print(f"PASS {passed} Chromium workflows through Nginx", flush=True)
 
     def crash_recovery(self, client, fixture, key):

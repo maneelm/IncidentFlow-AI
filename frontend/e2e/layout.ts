@@ -91,5 +91,73 @@ export async function expectNoHorizontalOverflow(page: Page) {
   if (layout.documentWidth > layout.viewportWidth)
     console.log(`LAYOUT_DIAGNOSTIC ${JSON.stringify(layout)}`);
   expect(layout.documentWidth <= layout.viewportWidth).toBe(true);
+  await expectHeaderFits(page);
   return layout;
+}
+
+export async function expectHeaderFits(page: Page) {
+  const geometry = await page.locator(".topbar").evaluate((header) => {
+    const bounds = header.getBoundingClientRect();
+    const css = getComputedStyle(header);
+    const contentLeft = bounds.left + parseFloat(css.paddingLeft);
+    const contentRight = bounds.right - parseFloat(css.paddingRight);
+    const boxes = [
+      ".breadcrumb",
+      ".breadcrumb strong",
+      ".topbar-right",
+      ".connection",
+      ".user-avatar",
+      ".mobile-toggle",
+      ".topbar-right button",
+    ]
+      .map((selector) => {
+        const element = header.querySelector(selector)!;
+        const rect = element.getBoundingClientRect();
+        return {
+          tag: element.tagName.toLowerCase(),
+          classes: Array.from(element.classList),
+          left: rect.left,
+          right: rect.right,
+          top: rect.top,
+          bottom: rect.bottom,
+          width: rect.width,
+          height: rect.height,
+          clientWidth: element.clientWidth,
+          scrollWidth: element.scrollWidth,
+        };
+      })
+      .filter((box) => box.width > 0 && box.height > 0);
+    return {
+      contentLeft,
+      contentRight,
+      top: bounds.top,
+      bottom: bounds.bottom,
+      boxes,
+    };
+  });
+  const outside = geometry.boxes.filter(
+    (box) =>
+      box.left < geometry.contentLeft - 0.5 ||
+      box.right > geometry.contentRight + 0.5 ||
+      box.top < geometry.top - 0.5 ||
+      box.bottom > geometry.bottom + 0.5 ||
+      box.scrollWidth > box.clientWidth + 1,
+  );
+  if (outside.length) {
+    const layout = await layoutSnapshot(page);
+    console.log(
+      `LAYOUT_DIAGNOSTIC ${JSON.stringify({ ...layout, offenders: outside })}`,
+    );
+  }
+  expect(
+    outside,
+    "Header content must stay inside its padded bounds without clipping",
+  ).toEqual([]);
+  const breadcrumb = geometry.boxes.find((box) =>
+    box.classes.includes("breadcrumb"),
+  );
+  const controls = geometry.boxes.find((box) =>
+    box.classes.includes("topbar-right"),
+  );
+  expect(breadcrumb!.right).toBeLessThanOrEqual(controls!.left);
 }
