@@ -7,6 +7,7 @@ import {
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { Execution } from "../src/types/models";
+import { expectNoHorizontalOverflow } from "./layout";
 
 interface Fixture {
   api_url: string;
@@ -74,6 +75,14 @@ async function capture(page: Page, filename: string) {
     fullPage: false,
     animations: "disabled",
   });
+}
+
+async function mobileWidths(page: Page) {
+  for (const width of [320, 375, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expectNoHorizontalOverflow(page);
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
 }
 
 test("portfolio workflow, accessible controls and safe real screenshots", async ({
@@ -201,6 +210,10 @@ test("portfolio workflow, accessible controls and safe real screenshots", async 
   );
 
   await login(page, "engineer", `/incidents/${incidentId}`);
+  await expect(
+    page.getByRole("heading", { name: "Incident description", exact: true }),
+  ).toBeVisible();
+  await mobileWidths(page);
   await capture(page, "incident-details.png");
   await page
     .getByRole("button", { name: "Change status", exact: true })
@@ -221,6 +234,7 @@ test("portfolio workflow, accessible controls and safe real screenshots", async 
     page.getByRole("heading", { name: "Observed problem", exact: true }),
   ).toBeVisible({ timeout: 30000 });
   await expect(page.getByText(/Synthetic provider report/)).toBeVisible();
+  await mobileWidths(page);
   await capture(page, "ai-investigation-summary.png");
   await page
     .getByRole("heading", { name: "Unverified root-cause hypotheses" })
@@ -367,14 +381,10 @@ test("portfolio workflow, accessible controls and safe real screenshots", async 
     await raw
       .locator("summary")
       .evaluate((element) => (element as HTMLElement).blur());
-    for (const width of [720, 390]) {
+    for (const width of [720, 320, 375, 390, 430]) {
       await second.setViewportSize({ width, height: 900 });
       await expect(comparison).toBeVisible();
-      expect(
-        await second.evaluate(
-          () => document.documentElement.scrollWidth <= innerWidth,
-        ),
-      ).toBe(true);
+      await expectNoHorizontalOverflow(second);
       const bounds = await comparison.boundingBox();
       expect(bounds).not.toBeNull();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -385,6 +395,10 @@ test("portfolio workflow, accessible controls and safe real screenshots", async 
       await expect(
         comparison.getByRole("columnheader", { name: "After" }),
       ).toBeVisible();
+      await raw.locator("summary").click();
+      await expect(raw.locator("pre")).toBeVisible();
+      await expectNoHorizontalOverflow(second);
+      await raw.locator("summary").click();
     }
     await second.setViewportSize({ width: 1440, height: 1000 });
     await second.evaluate(() => scrollTo(0, 0));
@@ -441,13 +455,9 @@ test("portfolio workflow, accessible controls and safe real screenshots", async 
     .evaluate((element) => element.scrollIntoView({ block: "start" }));
   await capture(page, "incident-timeline.png");
   // Reflow checks approximate a 200% desktop layout and a narrow phone viewport.
-  for (const width of [720, 390]) {
+  for (const width of [720, 320, 375, 390, 430]) {
     await page.setViewportSize({ width, height: 900 });
-    expect(
-      await page.evaluate(
-        () => document.documentElement.scrollWidth <= innerWidth,
-      ),
-    ).toBe(true);
+    await expectNoHorizontalOverflow(page);
   }
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("link", { name: "Log explorer", exact: true }).click();

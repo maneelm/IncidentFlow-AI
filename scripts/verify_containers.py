@@ -7,6 +7,7 @@ Final cleanup removes only this invocation's label-verified temporary resources.
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -82,6 +83,99 @@ def expect_contains(check, observed, expected):
         raise VerificationFailure(check, {"contains": expected}, observed)
 
 
+def layout_diagnostic(outputs):
+    """Allow only bounded geometry/styles from the browser's overflow diagnostic."""
+    numbers = {"left", "right", "top", "bottom", "width", "height", "clientWidth", "scrollWidth"}
+    styles = {
+        "display": {
+            "block",
+            "inline",
+            "inline-block",
+            "flex",
+            "inline-flex",
+            "grid",
+            "inline-grid",
+            "table",
+            "table-row",
+            "table-cell",
+            "none",
+            "contents",
+            "list-item",
+            "table-row-group",
+            "table-header-group",
+        },
+        "position": {"static", "relative", "absolute", "fixed", "sticky"},
+        "overflowX": {"visible", "hidden", "auto", "scroll", "clip"},
+        "whiteSpace": {"normal", "nowrap", "pre", "pre-wrap", "pre-line", "break-spaces"},
+    }
+
+    def number(value):
+        return type(value) in {int, float} and abs(value) <= 10_000_000 and math.isfinite(value)
+
+    def box(value):
+        if not isinstance(value, dict):
+            return {}
+        result = {key: value[key] for key in numbers if key in value and number(value[key])}
+        tag = value.get("tag")
+        if isinstance(tag, str) and re.fullmatch(r"[a-z][a-z0-9-]{0,20}", tag):
+            result["tag"] = tag
+        classes = value.get("classes")
+        if isinstance(classes, list):
+            result["classes"] = [
+                item
+                for item in classes[:6]
+                if isinstance(item, str) and re.fullmatch(r"[a-z][a-z0-9_-]{0,45}", item, re.I)
+            ]
+        for key, allowed in styles.items():
+            if isinstance(value.get(key), str) and value[key] in allowed:
+                result[key] = value[key]
+        for key in ("minWidth", "maxWidth", "flexShrink"):
+            item = value.get(key)
+            if isinstance(item, str) and re.fullmatch(
+                r"auto|none|min-content|max-content|fit-content|[0-9.]{1,12}(?:px|%)?", item
+            ):
+                result[key] = item
+        return result
+
+    for output in outputs:
+        text = output.get("text", "") if isinstance(output, dict) else ""
+        if not isinstance(text, str) or not text.startswith("LAYOUT_DIAGNOSTIC "):
+            continue
+        try:
+            value = json.loads(text[len("LAYOUT_DIAGNOSTIC ") :])
+        except ValueError:
+            continue
+        if not isinstance(value, dict):
+            continue
+        result = {
+            key: value[key]
+            for key in (
+                "viewportWidth",
+                "clientWidth",
+                "documentWidth",
+                "bodyWidth",
+                "scrollX",
+                "localScrollElements",
+            )
+            if key in value and number(value[key])
+        }
+        if "viewportWidth" not in result or "documentWidth" not in result:
+            continue
+        if isinstance(value.get("fontsLoaded"), bool):
+            result["fontsLoaded"] = value["fontsLoaded"]
+        result["offenders"] = []
+        offenders = value.get("offenders")
+        for offender in offenders[:12] if isinstance(offenders, list) else []:
+            item = box(offender)
+            if isinstance(offender, dict):
+                for key in ("parent", "containingBlock"):
+                    if isinstance(offender.get(key), dict):
+                        item[key] = box(offender[key])
+            result["offenders"].append(item)
+        return result
+    return None
+
+
 def browser_failures(report):
     """Retain assertion locations and primitive comparisons, never raw Playwright errors."""
     failures = []
@@ -105,6 +199,9 @@ def browser_failures(report):
                             match = re.search(rf"^{label}: (true|false|\d+)\s*$", message, re.M)
                             if match:
                                 failure[key] = json.loads(match[1])
+                        layout = layout_diagnostic(result.get("stdout", []))
+                        if layout is not None:
+                            failure["layout"] = layout
                         failures.append(failure)
         for child in suite.get("suites", []):
             visit(child)

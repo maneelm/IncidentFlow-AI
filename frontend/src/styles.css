@@ -1655,6 +1655,8 @@ summary {
 
 /* Shared record affordances: preserve source identity without making UUIDs headings. */
 .identifier {
+  /* Keep the absolute live-status span inside its owning record and scroller. */
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 5px;

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { expectNoHorizontalOverflow } from "./layout";
 interface Fixture {
   incident_id: string;
   service_id: string;
@@ -313,6 +314,36 @@ test("E: viewer controls are absent, backend writes denied, and tokens disappear
 test("real log pagination, runbook version browsing, and mobile navigation", async ({
   page,
 }) => {
+  // An assigned row renders Identifier's live region in an offscreen table cell.
+  // Own this fixture so the regression also runs independently of earlier tests.
+  const access = await token(page, "admin");
+  const headers = { Authorization: `Bearer ${access}` };
+  const directory = await page.request.get(
+    `${data.api_url}/api/v1/directory/users`,
+    { headers },
+  );
+  expect(directory.status()).toBe(200);
+  const assignee = (await directory.json()).items.find(
+    (item: { role: string }) => item.role === "engineer",
+  );
+  expect(assignee).toBeTruthy();
+  const created = await page.request.post(`${data.api_url}/api/v1/incidents`, {
+    headers,
+    data: {
+      service_id: data.service_id,
+      assignee_id: assignee.id,
+      title:
+        `SYNTHETIC mobile layout: ${"long-technical-identifier-".repeat(7)}`.slice(
+          0,
+          200,
+        ),
+      description:
+        "SYNTHETIC assigned incident for responsive table and copy-status coverage.",
+      severity: "medium",
+    },
+  });
+  expect(created.status()).toBe(201);
+  const assignedIncident = await created.json();
   await login(page, "viewer", "/logs");
   await expect(
     page.getByRole("table", { name: "Logs", exact: true }),
@@ -352,11 +383,38 @@ test("real log pagination, runbook version browsing, and mobile navigation", asy
   await expect(
     page.getByRole("heading", { name: "Incidents", exact: true }),
   ).toBeVisible();
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
+  const assignedRow = page.locator("tr").filter({
+    has: page.locator(`a[href="/incidents/${assignedIncident.id}"]`),
+  });
+  await expect(assignedRow.locator(".identifier .sr-only")).toHaveCount(1);
+  await expectNoHorizontalOverflow(page);
+  const region = page.getByRole("region", {
+    name: "Incidents table",
+    exact: true,
+  });
+  for (const width of [320, 375, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expectNoHorizontalOverflow(page);
+    expect(
+      await region.evaluate(
+        (element) => element.scrollWidth > element.clientWidth,
+      ),
+    ).toBe(true);
+    await region.evaluate((element) => {
+      element.scrollLeft = element.scrollWidth;
+    });
+    await expect(
+      page.getByRole("columnheader", { name: "Created", exact: true }),
+    ).toBeInViewport();
+    await expect(
+      assignedRow.getByRole("button", { name: "Copy user ID" }),
+    ).toBeVisible();
+    await expectNoHorizontalOverflow(page);
+    await region.evaluate((element) => {
+      element.scrollLeft = 0;
+    });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: "test-results/mobile-incidents.png",
     fullPage: true,

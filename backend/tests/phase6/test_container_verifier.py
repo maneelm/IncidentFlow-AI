@@ -349,3 +349,104 @@ def test_main_always_cleans_and_returns_failure_for_failed_checks(monkeypatch, c
     assert result.value.code == 1
     assert calls == ["verify", "cleanup"]
     assert "PASS container acceptance verification" not in capsys.readouterr().out
+
+
+def test_layout_diagnostic_preserves_overflow_geometry_and_containing_block_only():
+    payload = {
+        "viewportWidth": 390,
+        "clientWidth": 390,
+        "documentWidth": 679,
+        "bodyWidth": 390,
+        "fontsLoaded": True,
+        "localScrollElements": 46,
+        "password": "private-password",
+        "html": "private prompt",
+        "offenders": [
+            {
+                "tag": "span",
+                "classes": ["sr-only"],
+                "left": 677.88,
+                "right": 678.88,
+                "width": 1,
+                "height": 1,
+                "position": "absolute",
+                "overflowX": "hidden",
+                "text": "private incident description",
+                "value": "private input",
+                "parent": {"tag": "span", "classes": ["identifier"], "position": "static"},
+                "containingBlock": {"tag": "body", "position": "static", "password": "private"},
+            }
+        ],
+    }
+    result = verifier.layout_diagnostic([{"text": "LAYOUT_DIAGNOSTIC " + json.dumps(payload)}])
+    assert result["viewportWidth"] == 390 and result["documentWidth"] == 679
+    assert result["offenders"][0]["classes"] == ["sr-only"]
+    assert result["offenders"][0]["containingBlock"] == {"tag": "body", "position": "static"}
+    assert "private" not in json.dumps(result)
+
+
+def test_browser_failure_includes_safe_layout_diagnostic():
+    payload = {"viewportWidth": 390, "documentWidth": 679, "offenders": []}
+    report = {
+        "suites": [
+            {
+                "specs": [
+                    {
+                        "file": "layout.ts",
+                        "line": 93,
+                        "tests": [
+                            {
+                                "results": [
+                                    {
+                                        "status": "failed",
+                                        "errors": [{"message": "Expected: true\nReceived: false"}],
+                                        "stdout": [
+                                            {"text": "LAYOUT_DIAGNOSTIC " + json.dumps(payload)}
+                                        ],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ]
+            }
+        ]
+    }
+    failure = verifier.browser_failures(report)[0]
+    assert failure["expected"] is True and failure["observed"] is False
+    assert failure["layout"]["documentWidth"] == 679
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "not JSON",
+        "null",
+        "[]",
+        '{"viewportWidth":390,"documentWidth":679,"offenders":null}',
+    ],
+)
+def test_malformed_layout_metadata_does_not_break_failure_reporting(payload):
+    result = verifier.layout_diagnostic([{"text": "LAYOUT_DIAGNOSTIC " + payload}])
+    if result is not None:
+        assert result["offenders"] == []
+
+
+def test_layout_diagnostic_rejects_unbounded_numbers_and_style_payloads():
+    payload = {
+        "viewportWidth": 390,
+        "documentWidth": 679,
+        "scrollX": 10**400,
+        "offenders": [
+            {
+                "tag": "<script>",
+                "classes": ["Bearer private", "sr-only"],
+                "display": "private",
+                "minWidth": "url(private)",
+                "width": float("inf"),
+            }
+        ],
+    }
+    result = verifier.layout_diagnostic([{"text": "LAYOUT_DIAGNOSTIC " + json.dumps(payload)}])
+    assert "scrollX" not in result
+    assert result["offenders"] == [{"classes": ["sr-only"]}]
